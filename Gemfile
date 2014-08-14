@@ -1,8 +1,10 @@
-source "https://rubygems.org"
+#source "https://rubygems.org"
+source "http://ruby.taobao.org"
 
 group :development do
   gem 'rake', '~> 10.0'
-  gem 'jekyll', '~> 2.0'
+  #gem 'jekyll', '~> 2.0'
+  gem 'jekyll', '2.2.0'
   gem 'octopress-hooks', '~> 2.2'
   gem 'octopress-date-format', '~> 2.0'
   gem 'jekyll-sitemap'
@@ -17,3 +19,4 @@ group :development do
 end
 
 gem 'sinatra', '~> 1.4.2'
+gem 'kramdown'
