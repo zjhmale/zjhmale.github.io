@@ -3,9 +3,9 @@
 # ----------------------- #
 
 url: http://zjhmale.github.io
-title: My Octopress Blog
-subtitle: A blogging framework for hackers.
-author: Your Name
+title: zjhsdtc's blog
+subtitle: 利用lisp的原力，探求计算的本质
+author: zjhsdtc
 simple_search: https://www.google.com/search
 description:
 
@@ -100,3 +100,4 @@ google_analytics_tracking_id:
 
 # Facebook Like
 facebook_like: false
+subtitle: 利用lisp的元力，探求计算的本质
