@@ -182,7 +182,7 @@ and \; err(\hat{y}(X_{i}), Y_{i}) = 0 \; if \; \hat{y}(X_{i}) < 0.5$$
 {% codeblock lang:clojure %}
 (def fish-template
      [{:category [:salmon :sea-bass]}
-      :length :width :lightness])
+       :length :width :lightness])
 {% endcodeblock %}
 
 上面代码中定义的`fish-template`向量可以和一些样本数据一起来训练一个分类器模型。至此，我们先不去关心这个分类器用来对给定训练数据建模使用的分类算法是什么。我们仅仅只需要知道这个分类器使用`clj-ml`库中的`make-classifier`函数创建的，然后使用`*classifier*`这个变量来存储这个分类器对象，如下所示：
@@ -193,4 +193,449 @@ and \; err(\hat{y}(X_{i}), Y_{i}) = 0 \; if \; \hat{y}(X_{i}) < 0.5$$
 
 注意上面的代码中我们需要用`*`包围住`classifier`，这在`lisp`的世界中俗称为耳罩(earmuffs)，`Clojure`中如果要声明一个动态变量就需要加上这个耳罩，这没有任何语法含义，只是一种约定，方便其他的人阅读修改你的`lisp`代码。
 
-假设已经使用了一些样本数据训练好了一个分类器。我们必须去评估这个已经训练好的分类器模型。为了做到这一点，我们必须首先创建一些样本数据用于交叉验证。为了简单起见，我们在这个例子中选择随机产生的数据作为验证。我们可以使用第三章中已经定义过的`make-sample-fish`函数来产生验证数据。
+假设已经使用了一些样本数据训练好了一个分类器。我们必须去评估这个已经训练好的分类器模型。为了做到这一点，我们必须首先创建一些样本数据用于交叉验证。为了简单起见，我们在这个例子中选择随机产生的数据作为验证。我们可以使用第三章中已经定义过的`make-sample-fish`函数来产生验证数据。这个函数仅仅简单地产生了一个随机整数向量来代表一条鱼的样本。回顾第三章的代码我们就可以发现这个函数中其实是有一个内置偏袒的机制，利用随机数来判断产生的是三文鱼还是鲈鱼，所以我们可以使用这个函数产生一个很有意义的教程验证数据集，如下代码所示：
+
+{% codeblock lang:clojure %}
+(def fish-cv-data
+  (for [i (range 3000)] (make-sample-fish)))
+{% endcodeblock %}
+
+如果要产生一个可以被`clj-ml`库中函数使用的数据集，我们还需要使用`make-dataset`函数重新包装一层，如下代码所示：
+
+{% codeblock lang:clojure %}
+(def fish-cv-dataset
+  (make-dataset "fish-cv" fish-template fish-cv-data))
+{% endcodeblock %}
+
+为了交叉验证这个分类器，我们必须使用`clj-ml.classifier`名字空间中的`classifier-evaluate`函数。这个函数本质上对于给定的数据是使用了*k折交叉验证方法*。这个函数不仅需要分类器对象以及交叉验证数据集，还需要将k折交叉验证方法中的k值作为函数的最后一个参数传入。同样的，在第三章中实现`train-bayes-classifier`函数时也提到过，我们还需要用一个会带来副作用的函数`dataset-set-class`来确定交叉验证数据集`fish-cv-dataset`中每一个样本中表示类别的下标值。如下面代码所示，我们可以定义一个函数来完成上面所述的操作：
+
+{% codeblock lang:clojure %}
+(defn cv-classifier [folds]
+  (dataset-set-class fish-cv-dataset 0)
+  (classifier-evaluate *classifier* :cross-validation
+                       fish-cv-dataset folds))
+{% endcodeblock %}
+
+我们将会使用10折交叉验证来评估我们的分类器性能。由于`classifier-evaluate`函数返回的是一个map对象，所以我们需要将这个返回值绑定到一个变量上，以备我们后续使用，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (def cv (cv-classifier 10))
+#'user/cv
+{% endcodeblock %}
+
+我们可以用`:summary`关键字来获得并且打印出上面交叉验证的结果摘要，如下代码所示：
+
+{% codeblock lang:clojure %}
+user> (print (:summary cv))
+Correctly Classified Instances
+Incorrectly Classified Instances
+Kappa statistic
+Mean absolute error
+2986              99.5333 %
+  14               0.4667 %
+   0.9888
+   0.0093
+   0.0681
+   2.2248 %
+  14.9238 %
+3000
+Root mean squared error
+Relative absolute error
+Root relative squared error
+Total Number of Instances
+nil
+{% endcodeblock %}
+
+如上面代码所示，我们可以看到好几个用来衡量我们训练的分类器性能的统计参数。除了描述已分类记录的正确率与错误率，这个摘要还描述了**均方根误差(RMSE)**以及其他一些描述模型误差的统计参数。为了更加直观地看到分类正确与分类不正确的样本记录，我们可以利用`:confusion-matrix`关键字获得并打印出交叉验证后的混淆矩阵，当然混淆矩阵是根据验证集的结果来得到的，因为按照k折交叉验证的原理，样本数据集中的每一个单独的样本都会作为一次验证集中的测试样本。用如下代码我们可以获得混淆矩阵：
+
+{% codeblock lang:clojure %}
+user> (print (:confusion-matrix cv))
+=== Confusion Matrix ===
+
+    a    b   <-- classified as
+ 2129    0 |    a = salmon
+    9  862 |    b = sea-bass
+{% endcodeblock %}
+
+在上面的例子中，我们使用了`clj-ml`库中的`classifier-evaluate`函数来对给定的分类器模型进行交叉验证。尽管在使用`classifier-evaluate`函数时，我们需要遵守很多`clj-ml`库中的约束与限制，但是如果要在我们自己建立的机器学习系统中实现一套相同的诊断机制也不是很容易的。
+
+## 建立一个垃圾邮件分类器
+
+现在我们已经熟悉了交叉验证了，我们将会构建一个应用到交叉验证机制的机器学习系统。我们需要解决的问题是**垃圾邮件分类**，也就是要确定一封给定的电子邮件，这封邮件是垃圾邮件的可能性。这个问题本质上可以归结为要设计一个二分类器，只不过需要做一些调整，从而使这个二元分类器对垃圾邮件更加敏感(更多信息可以参考*Plan for spam*这篇文章)。需要注意的是我们并不会去实现一个内嵌在电子邮件服务器中的分类引擎，相反的我们会把更多的精力放在如何用一些已有的数据去训练一个引擎从而可以对给定的邮件进行尽可能正确的分类。
+
+真实情况下，一个用户会收到一封新邮件，并且用户会标记这封邮件是否为垃圾邮件。基于用户主管的决策，我们可以利用用户标记过的邮件数据来训练我们的邮件过滤引擎。
+
+为了让我们训练垃圾邮件过滤器的步骤更加地自动化，我们需要将收集到的数据送入到分类器中。我们需要大量的用英文撰写的电子邮件来训练我们的分类器，从而让分类器的性能更优。幸运的是，用来训练垃圾邮件分类器的样本数据可以很轻松地从互联上获得。在我们的实现步骤中，将会使用**Apache SpamAssassin**项目中的数据。
+
+>Apache SpamAssassin项目是一个用perl语言实现的开源垃圾邮件分类引擎。在我们的实现中，我们会使用这个项目用到的训练数据集。你可以从这个网址http://spamassassin.apache.org/publiccorpus/上下载我们需要的数据集。在我们的例子中，我们需要*spam_2*和*easy_ham_2*两个数据集。我们的分类引擎将会使用Leiningen构建项目目录结构，我们需要在项目根目录下，也就是和project.clj文件平级的路径下建立一个corpus/路径，然后将我们下载得到的数据集分别解压到corpus/路径下面的ham/路径与spam/路径。
+
+我们的垃圾邮件分类器的特征是垃圾邮件与正常邮件中已经出现过的单词出现的次数。准确的说是要计算某一个在单词平均在一封垃圾邮件中出现的次数以及在正常邮件中出现的次数，因此在我们模型中有这两个平均次数作为两个独立的自变量。此外还要计算如果一封邮件中出现了某一个单词的情况下，那么这封邮件是垃圾邮件的概率，这个概率可以通过得到这个单词在垃圾邮件和正常邮件中平均出现的次数以及总的训练用的邮件数量来求得。分类一封新的邮件时，分类引擎会从邮件的头部和正文中提取出所有已经统计过的单词，然后分别计算在出现这些词的条件下是否是垃圾邮件的概率，联合这些求得的概率再来断定这封新的邮件是否是垃圾邮件。
+
+我们的分类器如果要将一个单词作为特征，就需要用分类器计算所有邮件样本的个数来得到出现这个单词时邮件是垃圾邮件的概率(更多信息可以参考*Better Bayesian Filtering*这篇文章)。此外一个之前没有见到过的单词是中性的无法决定包含有这个单词的邮件是否是垃圾邮件，因此在一个没有训练过的分类器中所有单词特征决定的垃圾邮件后验概率初始值都是$$0.5$$。我们可以用**贝叶斯概率**函数来对一个特定的单词出现时给定邮件是否是垃圾邮件的概率进行建模。
+
+为了对一封新邮件进行分类，我们需要联合给定邮件中所有已知单词出现的情况下，这封信是垃圾邮件的概率。要做到这一点，我们需要使用**费舍尔方法(Fisher's method)**或者也叫做**费舍尔联合概率检验(Fisher's combined probability test)**，来联合多个计算出的概率值。尽管这个检验方法的数学证明已经超出了本书的范围，但是需要知道的是这个方法本质上是将一个给定的模型中多个独立的假设的概率值的联合概率评估为符合$$\chi^{2}$$(读作卡方)分布(更多信息可以参考*Statistical Methods for Research Workers*一书)。这个分布有一个关联的自由度阶数。费舍尔方法中就证明k个假设的概率的联合概率的值符合2k阶自由度的卡方分布，这个关系可以用如下的公式形式化的表示：
+
+$$-2\sum_{i=1}^{k}log\;p_{i} \sim \chi_{2k}^{2}$$
+
+读着可能会奇怪，为什么不直接用$$\prod_{i=1}^{k}\;p_{i}$$作为多个概率的联合概率值，这是因为这个值并不满足一个特定的分布，所以需要将这个联合概率进行转变，如上面公式所示，我们用$$-2\sum_{i=1}^{k}log\;p_{i}$$的值符合卡方分布，从而根据卡方分布得到一个最终的联合概率值，作为多个假设结合的结果。
+
+这意味着用2k阶自由度的卡方分布来计算**累积分布函数(CDF)**，一般都是一张对照表。通过累积分布函数来计算一封邮件是垃圾邮件或者是正常邮件，可以看到的是如果需要联合的概率中大部分的概率值都接近于$$1.0$$，那么最后根据卡方分布对应的联合概率值也会很大。所以假如一份邮件中有越多词是经常在垃圾邮件中出现的，那么这封信就越有可能是垃圾邮件。同样的，假如一封邮件中大量地出现了经常在正常邮件中出现的词，那么就可以断定这是一封正常邮件。相反的假如一封邮件中有很多新词，这些词既没有出现在垃圾邮件数据集中也没有出现在正常邮件数据集中，那么最终的概率很可能会趋近于$$0.5$$，而这种情况下，分类器将没有足够的能力去确定这是一封垃圾邮件，还是一封正常邮件。
+
+>为了我们后面的例子，我们需要clojure.java.io包中的file函数，以及Incanter库中cdf-chisq函数，我们项目中的名字空间需要修改如下：<br />
+(ns my-namespace<br />
+&nbsp;&nbsp;(:use [clojure.java.io :only [file]]<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[incanter.stats :only [cdf-chisq]])
+
+如前面提到的，我们需要用费舍尔方法来训练分类器，从而让这个分类器对于新的垃圾邮件非常敏感。我们使用一封给定邮件是否是垃圾邮件的概率值来作为我们模型因变量的值。这个概率值也可以称为这封新邮件的**垃圾指数**。如果这个指数很低，那么这封邮件就是正常邮件，而如果这个指数很高，那么就可以确定这封邮件是垃圾邮件。当然，由于分类器可能会无法分辨新邮件是否为垃圾邮件或者是正常邮件，所以我们需要额外声明第三种类型来表示这种不确定的类型。我们可以为这三种类别定义合理的阈值从而可以根据分类器的输出值来分辨新邮件的类别，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def min-spam-score 0.7)
+(def max-ham-score 0.4)
+
+(defn classify-score [score]
+  [(cond
+    (<= score max-ham-score) :ham
+    (>= score min-spam-score) :spam
+    :else :unsure)
+   score])
+{% endcodeblock %}
+
+如上面的代码定义的那样，假如一封新邮件的垃圾指数超过$$0.7$$，那么这封邮件就是垃圾邮件，而如果垃圾指数低于$$0.4$$，那么就认定这封邮件是正常邮件，而如果指数在这两个阈值之间，那么分类器就没有办法有效地确定这封邮件是垃圾邮件或者是正常邮件。我们在代码中使用`:ham`，`:spam`以及`:unsure`三个关键字来表示上面三种类别。
+
+垃圾邮件分类器必须先分析一定量的电子邮件，并从这些电子邮件的头部以及正文中解析得到单词，或者说是*标记(tokens)*，并且将这些标记信息事先保存以备后面的分类行为使用。我们必须存储一个特定的单词在垃圾邮件训练数据中出现的次数以及正常邮件训练数据中出现的次数。因此每一个分类器遇到的单词都被表示成一维特征。为了格式化地表示与一个标记有关的信息，我们定义一个有三个字段的记录来抽象这种数据格式，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defrecord TokenFeature [token spam ham])
+
+(defn new-token [token]
+  (TokenFeature. token 0 0))
+
+(defn inc-count [token-feature type]
+  (update-in token-feature [type] inc))
+{% endcodeblock %}
+
+上面代码所定义的`TokenFeature`记录可以被用来存储一个标记的信息，以便于我们的垃圾邮件分类器使用。`new-token`函数仅仅是简单地调用了记录的构造函数来创建了一个新的`TokenFeature`类型的对象。当然，一个单词在初始化的时候在垃圾邮件和正常邮件中出现的次数都是0次。此外我们还需要更新这些值，所以我们定义了`inc-count`函数使用`update-in`函数来更新一个记录(因为一个record其实还是一个map对象，所以可以使用update-in函数来更新特定键上对应的值)。需要注意的是`update-in`函数需要接受一个匿名函数作为参数列表的最后一个参数，来描述对需要更新位置上的数据操作的行为。因为在我们的实现中需要处理小量的可变状态，所以我们可以使用Clojure中的agent来代理我们的操作可变状态的行为。此外我们还要追踪垃圾邮件和正常邮件的总数量，这些状态也要使用Clojure的代理人(agents)机制来封装，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def feature-db
+  (agent {} :error-handler #(println "Error: " %2)))
+
+(def total-ham (agent 0))
+(def total-spam (agent 0))
+{% endcodeblock %}
+
+上面代码所定义的`feature-db`代理人用键值对形式来存储所有单词特征。我们还使用`:eror-handler`关键字作为参数为这个代理人定义了一个简单的错误处理机制。`total-ham`与`total-spam`这两个代理人则会分别持续追踪正常邮件以及垃圾邮件的总个数。现在我们要定义一些函数来操作这些代理人，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn clear-db []
+  (send feature-db (constantly {}))
+  (send total-ham  (constantly 0))
+  (send total-spam (constantly 0)))
+
+(defn update-feature!
+  "根据传入的单词来操作存储单词特征的map对象，
+  如果传入的单词已经存在就更新对应的出现次数，
+  如果不存在就创建一个新的标记作为单词对应的值。"
+  [token f & args]
+  (send feature-db update-in [token]
+        #(apply f (if %1 %1 (new-token token))
+                args)))
+{% endcodeblock %}
+
+假如你不熟悉Clojure的代理人机制，稍作解释，我们可以使用`send`函数来异步地改变一个代理人中持有的状态。这个函数需要一个匿名函数作为参数，来作为对代理人内部状态操作的行为。代理人使用`send`函数传入的函数来更新内部的状态值，假如在更新过程中出错，就会触发错误处理函数。`clear-db`函数只是简单地使用一些初始值来初始化我们之前定义过的所有代理人。初识化过程使用`constantly`函数，由于`send`函数需要一个函数来传递状态，所以我们不能仅仅将一个数值作为参数进行传递，而是需要用`constantly`函数来对我们要传递的值进行封装，`constantly`这个函数的功能就是将它接受到的参数原样返回。`update-feature!`函数利用给定的单词来对`feature-db`代理人内部的map对象进行操作，假如这个map对象中没有以给定单词为键的键值对，那么就建立一个新的标记，作为值和这个新的单词一起插入到map对象中，如果已经存在了，那么就将对应的值增加一，这个增加的操作是通过传递`inc-count`函数来完成的，在后面的代码中将会用到这个操作。
+
+现在让我们来定义一个可以从给定电子邮件中提取出单词的分类器。我们将会使用正则表达式来做到这一点。假如需要将给定的字符串中所有大于三个字符的单词提取出来，我们需要`[a-zA-Z]{3,}`这个正则表达式。我们可以利用Clojure中的语法糖来定义这个正则表达式，如下面的代码所示。需要注意的是我们也可以使用`re-pattern`函数来定义正则表达式，但是使用语法糖来的更简洁。此外我们还要定义邮件头部的所有MIME字段来提取出头部的标记(token)。以上所述的行为可以用如下代码实现：
+
+{% codeblock lang:clojure %}
+(def token-regex #"[a-zA-Z]{3,}")
+
+(def header-fields
+  ["To:"
+   "From:"
+   "Subject:"
+   "Return-Path:"])
+{% endcodeblock %}
+
+利用`re-seq`函数，我们可以利用上面代码中`token-regex`变量表示的正则表达式来匹配单词，这个函数会将匹配到的所有内容放入一个序列中返回，注意到我们在正则表达式中使用了分组，所以这个返回的序列中的每一个元素其实是一个向量，向量的第一个元素是正正则表达式匹配到的内容，后续的元素则是各个分组中匹配到的内容。以邮件的MIME头部信息为例，我们需要用不同的正则表达式来提取单词。一下面代码为例，我们从邮件MIME头部的`"From"`字段中提取单词：
+
+{% codeblock lang:clojure %}
+user> (re-seq #"From:(.*)\n"
+              "From: someone@host.org\n")
+(["From: someone@host.org\n" " someone@host.org"])
+{% endcodeblock %}
+
+>需要注意的是，上面代码中在正则表达式最后加上了一个换行符，从而来确定一封邮件中MIME头中不同字段的结束位置。
+
+利用上面的代码的方法利用正则表达式提取出匹配的内容之后，我们就可以操作返回的序列从而获得我们需要提取出来的单词了。让我们再来定义一些函数从而可以从电子邮件的头部以及正文中提取出单词来生成标记：
+
+{% codeblock lang:clojure %}
+(defn header-token-regex [f]
+  (re-pattern (str f "(.*)\n")))
+
+(defn extract-tokens-from-headers [text]
+  (for [field header-fields]
+    (map #(str field %1)  ; 将每一个提取出来的单词前面加上对应的字段名称
+         (mapcat (fn [x] (->> x second (re-seq token-regex)))
+                 (re-seq (header-token-regex field)
+                         text)))))
+
+(defn extract-tokens [text]
+  (apply concat
+         (re-seq token-regex text)
+         (extract-tokens-from-headers text)))
+{% endcodeblock %}
+
+上面代码定义的`header-token-regex`函数利用给定的字段名称返回一个正则表达式，比如传入的是`"From"`字段，那么返回的就是`From:(.*)\n`这个正则表达式。`extract-tokens-from-headers`函数使用正则表达式从不同的邮件头部中提取出所有匹配的单词，然后将提取出的单词前加上这个单词属于的字段名称，最后将所有提取到的内容连接成一个序列返回。`extract-tokens`函数将邮件内容分别传入提取整个邮件内容中的单词的行为以及从邮件头部提取单词的行为，然后使用`apply`和`concat`函数来讲两个部分返回的结果连接为一个序列作为最终的结果返回。需要注意的是，假如我们在`header-fields`中定义的头字段没有出现在给定的邮件内容中，那么`extract-tokens-from-headers`函数会在对应位置返回一个空的列表。我们可以在REPL中验证这个结果，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (def sample-text
+           "From: 12a1mailbot1@web.de
+            Return-Path: <12a1mailbot1@web.de>
+            MIME-Version: 1.0")
+user> (extract-tokens-from-headers sample-text)
+(() ("From:mailbot" "From:web")
+() ("Return-Path:mailbot" "Return-Path:web"))
+{% endcodeblock %}
+
+使用`extract-tokens-from-headers`函数和使用`token-regex`变量表示的正则表达式，我们可以从邮件的头部与全文中提取出所有大于三个字符的单词。现在让我们实现一个函数将`extract-tokens`函数作用在给定的邮件内容上，然后根据所有提取到的单词序列，利用`update-feature!`函数来更新我们之前定义的代理人中存储所有单词特征的map对象。可以利用如下代码来实现：
+
+{% codeblock lang:clojure %}
+(defn update-features!
+  "根据传入的邮件内容更新或者添加新的单词特征。"
+  [text f & args]
+  (doseq [token (extract-tokens text)]
+    (apply update-feature! token f args)))
+{% endcodeblock %}
+
+使用上面代码定义的`update-feature!`函数，我们可以用一封给定的邮件训练我们的垃圾邮件分类器了。为了可以持续跟踪垃圾邮件与正常邮件的总数，我们需要通过判断当前邮件是垃圾邮件或者是正常邮件从而将`inc`函数发送给`total-spam`或者`total-ham`两个代理人，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn inc-total-count! [type]
+  (send (case type
+          :spam total-spam
+          :ham total-ham)
+        inc))
+
+(defn train! [text type]
+  (update-features! text inc-count type)
+  (inc-total-count! type))
+{% endcodeblock %}
+
+上面代码中所定义的`inc-total-count!`函数会根据传入的邮件类型更新垃圾邮件总数或者是正常邮件总数。`train!`函数只是简单地调用了`update-features!`和`inc-total-count!`两个函数从而根据给定的邮件内容以及邮件类型来训练我们的垃圾邮件分类器。需要注意的是我们将`inc-count`函数传递给了`update-features!`函数。在上面的代码中`inc-count`函数与`update-feature!`函数中都用到了`update-in`函数，前者是用来更新`TokenFeature`类型的记录，后者是用来更新`feature-db`代理人内部的map对象。现在，为了对一封新的电子邮件进行分类，我们首先需要定义一个函数来根据我们已经训练好的单词特征数据集(也就是`feature-db`内的map对象)从邮件的内容中提取出所有已知的单词。可以用如下代码实现这个功能：
+
+{% codeblock lang:clojure %}
+(defn extract-features [text]
+  "从传入的邮件内容中提取出所有已经在训练词库中出现过的单词"
+  (keep identity (map #(@feature-db %1) (extract-tokens text))))
+{% endcodeblock %}
+
+上面代码定义的`extract-features`函数中，首先用`extract-tokens`函数来提取出传入邮件内容中所有匹配的单词，得到一个单词序列，然后将闭包`#(@feature-db %1)`作用在单词序列中的每一个元素上，闭包的行为是判断如果单词序列出现在`feature-db`中的map对象的键的集合中则返回其对应的`TokenFeature`类型的值，否则返回空值`nil`或者`()`，然后将闭包作用过的结果再放入一个序列中返回。我们需要对返回的序列中去除掉所有为空的值，所以我们需要使用`keep`函数和`identity`函数来过滤掉返回序列中的空值，其中`identity`函数会返回传入的参数，因为我们不需要改变返回序列中的元素，而`keep`函数与`filter`函数很类似，只不过`filter`函数不止会过滤掉所有的空值还会过滤掉逻辑假的值，而`keep`仅仅只会过滤掉无意义的空值。
+
+现在我们已经从给定的邮件中提取出了所有已知的特征了，我们必须计算在这些单词特征出现的情况下给定邮件是垃圾邮件的概率，然后使用之前介绍的费舍尔方法来联合这些后验概率来确定给定邮件的垃圾指数，现在让我们开始实现有关贝叶斯概率与费舍尔方法的函数：
+
+{% codeblock lang:clojure %}
+(defn spam-probability [feature]
+  (let [s (/ (:spam feature) (max 1 @total-spam))
+        h (/ (:ham feature) (max 1 @total-ham))]
+      (/ s (+ s h))))
+
+(defn bayesian-spam-probability
+  "利用给定特征以及一个先验概率和对应的权值来加权平均来最终求得一个比较可信的后验概率
+  先验概率的默认值是0.5，对应权值的大小默认是1。"
+  [feature & {:keys [assumed-probability weight]
+              :or   {assumed-probability 1/2 weight 1}}]
+  (let [basic-prob (spam-probability feature)
+        total-count (+ (:spam feature) (:ham feature))]
+    (/ (+ (* weight assumed-probability)
+          (* total-count basic-prob))
+       (+ weight total-count))))
+{% endcodeblock %}
+
+上面代码中定义的`spam-probability`函数先利用给定单词特征在垃圾邮件和正常邮件中出现的总次数以及垃圾邮件和正常邮件样本的总数量来求得给定单词特征平均在一封垃圾邮件中出现的次数以及平均在一封正常邮件中出现的次数，然后再计算出当一封邮件中出现给定单词特征时这封邮件是垃圾邮件的后验概率。为了避免除零异常，我们必须保证最后垃圾邮件总数和正常邮件总数至少为1。`bayesian-spam-probability`函数使用`spam-probability`函数返回的后验概率，以及一个默认值为$$0.5$$的先验概率一起求取一个加权平均作为当给定单词特征出现时邮件是垃圾邮件的后验概率的最终结果返回，其实在`bayesian-spam-probability`函数中并没有用到贝叶斯理论，叫这个名字有一些牵强，如果说是因为用到了先验后验的概念，那也可以勉强算是一种贝叶斯的思想。所以读者们仁者见仁智者见智。
+
+现在我们来实现费舍尔方法从而将给定邮件中所有已知的单词特征通过`bayesian-spam-probability`计算得到的后验概率联合起来，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn fisher
+  "Combines several probabilities with Fisher's method."
+  [probs]
+  (- 1 (cdf-chisq
+         (* -2 (reduce + (map #(Math/log %1) probs)))
+         :df (* 2 (count probs)))))
+{% endcodeblock %}
+
+上面代码中定义的`fisher`函数中先将多个后验概率变换成$$-2 \sum_{i=1}^{k} log \; p_{i}$$的形式得到一个初识的联合值，然后将这个初识得到的联合概率值以及卡方分布的自由度阶数传入`Incanter`库中的`cdf-chisq`函数，从而通过累积分布函数(CDF)计算得到通过费舍尔方法得到的联合概率值，因为利用CDF计算的过程是一个积分的过程，所以如果初识的联合概率值越大那么最后通过CDF计算返回的联合概率值也越大。其中我们使用`:df`关键字来指定卡方分布的自由度阶数。现在我们就需要将实现了的`bayesian-spam-probability`函数和`fisher`函数作用在一封待预测的邮件内容上，首先用`bayesian-spam-probability`函数分别算出每一个已知单词特征出现条件下给定邮件是垃圾邮件的后验概率，然后利用`fisher`函数来联合所有得到的后验概率得到一个联合概率值从而计算最终给定邮件对应的垃圾指数。这个垃圾指数越高则给定的邮件越有可能是垃圾邮件，越低则越有可能是正常邮件。得到这个垃圾指数最简单的方法就是分别求取可能为垃圾邮件的后验概率和不可能为正常邮件的后验概率(1减去可能为正常邮件的后验概率)，然后将这两个概率值求平均值作为最终的垃圾指数。我们可以用如下代码实现垃圾指数的计算：
+
+{% codeblock lang:clojure %}
+(defn score [features]
+  (let [spam-probs (map bayesian-spam-probability features)
+        ham-probs (map #(- 1 %1) spam-probs)
+        h (- 1 (fisher spam-probs))
+        s (- 1 (fisher ham-probs))]
+    (/ (+ (- 1 h) s) 2)))
+{% endcodeblock %}
+
+上面代码定义的`score`函数会返回给定邮件最终的垃圾指数。现在让我们实现一个函数将上面所有的模块整合起来，首先从给定邮件中提取出所有已知的单词特征，然后计算这些单词特征决定邮件是否是垃圾邮件的后验概率，然后联合这些后验概率得到一个垃圾指数，最后通过得到的垃圾指数来最终对给定邮件进行分类，最终的类别使用`:ham`，`:spam`或者`:unsure`关键字表示，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn classify
+  "以[分类结果 垃圾指数]形式，返回一个向量对象作为分类的结果"
+  [text]
+   (-> text
+       extract-features
+       score
+       classify-score))
+{% endcodeblock %}
+
+至此，我们已经实现了如何训练一个了垃圾邮件分类器以及如何使用这个分类器去分类一封新的邮件。现在，让我们定义一些函数从项目中的`corpus/`路径下获取样本数据从而来训练和交叉验证我们的分类器，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn populate-emails
+  "将'corpus/'路径下的邮件文件读取出来以一个序列形式返回，
+  其中序列中的每一个元素都是以[邮件文件名称 邮件类型]形式的向量。"
+  []
+  (letfn [(get-email-files [type]
+            (map (fn [f] [(.toString f) (keyword type)])
+                 (rest (file-seq (file (str "corpus/" type))))))]
+    (mapcat get-email-files ["ham" "spam"])))
+{% endcodeblock %}
+
+上面代码中定义的`populate-emails`函数从项目下的`corpus/spam`路径以及`corpus/ham`路径下读取出我们的邮件训练样本，然后将每一个读取出来的邮件样本以`[邮件文件名称 邮件类型]`的形式表示，其中第一个元素是字符串类型的邮件名称，第二个元素是表示邮件类型的关键字`:spam`或者`:ham`，放入一个向量对象中，然后将所有的向量对象放入一个序列中返回。需要注意的是我们利用`file-seq`函数从一个路径中读取出这个路径下面所有的文件并且放入一个序列中返回，而这个序列中的第一个元素表示的是这个读取路径的文件对象，我们并不需要这个对象，所以我们可以用`rest`函数来过滤掉第一个元素，为了说清楚这个问题，可以看如下代码：
+
+{% codeblock lang:clojure %}
+user> (first (file-seq (file "corpus/spam")))
+#<File corpus/spam>
+{% endcodeblock %}
+
+现在我们需要利用获取到的所有邮件样本或者说是语料库传入`train!`函数，然后开始训练我们的分类器了。我们可以使用`slurp`函数来根据文件名或者文件对象来讲文件中的内容读取出来并且以字符串形式返回。对于交叉分类，我们利用`classify`函数来对交叉验证数据集中的所有样本进行分类，并且将返回的所有map对象放入一个列表中作为交叉验证的测试结果。如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn train-from-corpus! [corpus]
+  (doseq [v corpus]
+    (let [[filename type] v]
+      (train! (slurp filename) type))))
+
+(defn cv-from-corpus [corpus]
+  (for [v corpus]
+    (let [[filename type] v
+          [classification score] (classify (slurp filename))]
+      {:filename filename
+       :type type
+       :classification classification
+       :score score})))
+{% endcodeblock %}
+
+上面代码中定义的`train-from-corpus!`函数将会利用项目中`corpus/`路径下的所有邮件样本中抽取出一部分作为训练集来训练我们的垃圾邮件分类器。`cv-from-corpus`函数使用已经训练好的垃圾邮件分类器来对交叉验证数据集中的每一个邮件样本进行分类测试，每一个样本分类的结果都放在一个map对象中，这个map对象中包含邮件文件的名称，邮件的真实类型，邮件的分类预测类型，邮件的垃圾指数，最终将所有的map对象放在一个列表中作为某一个交叉验证数据集最终交叉验证的结果。现在我们需要将样本数据集划分为训练集和验证集，然后分别传入`train-from-corpus!`函数和`cv-from-corpus`函数，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn test-classifier! [corpus cv-fraction]
+  "利用传入的交叉验证数据比重来将数据集划分为训练集和验证集来分别训练和交叉验证我们的分类器。"
+    (clear-db)
+    (let [shuffled (shuffle corpus)
+          size (count corpus)
+          training-num (* size (- 1 cv-fraction))
+          training-set (take training-num shuffled)
+          cv-set (nthrest shuffled training-num)]
+      (train-from-corpus! training-set)
+      (await feature-db)
+      (cv-from-corpus cv-set)))
+{% endcodeblock %}
+
+上面代码中定义的`test-classifier!`函数会将传入的整个数据集的顺序打乱，里面元素的顺序将洗牌一次，然后利用传入的交叉验证比值来计算得到训练数据集和验证数据集的大小，然后`test-classifier!`会分别调用`train-from-corpus!`函数和`cv-from-corpus`函数来训练和交叉验证我们的分类器。需要注意的是因为利用`send`函数向代理人发送行为的操作是异步的不会阻塞当前线程，所以假如我们需要以同步的方式利用代理人中的数据状态，就需要用到`await`函数来同步等待`feature-db`代理人中的状态已经更新完毕了，再进行之后的操作。
+
+现在我们需要分析交叉验证得到的结果了。我首先需要根据`cv-from-corpus`函数返回的结果序列中根据结果序列中每一个map对象中的邮件真实类型和分类预测类型来确定分类错误的样本个数与没有办法分类的样本个数。我们可以用如下代码来实现：
+
+{% codeblock lang:clojure %}
+(defn result-type [{:keys [filename type classification score]}]
+  (case type
+    :ham  (case classification
+            :ham :correct
+            :spam :false-positive
+            :unsure :missed-ham)
+    :spam (case classification
+            :spam :correct
+            :ham :false-negative
+            :unsure :missed-spam)))
+{% endcodeblock %}
+
+`result-type`函数会在交叉验证之后确定交叉验证结果集中的样本是分类正确还是分类出错还是无法分类。我们可以将`cv-from-corpus`函数返回的交叉验证结果集传入`result-type`函数。此外我们还要定义一个分析交叉验证结果的函数得到交叉验证结果集的样本总个数，分类正确的样本个数，分类错误的样本个数以及无法分类的样本个数，然后再将这些分析结果以摘要形式打印出来，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn analyze-results [results]
+  (reduce (fn [map result]
+            (let [type (result-type result)]
+              (update-in map [type] inc)))
+          {:total (count results) :correct 0 :false-positive 0
+           :false-negative 0 :missed-ham 0 :missed-spam 0}
+          results))
+
+(defn print-result [result]
+  (let [total (:total result)]
+    (doseq [[key num] result]
+      (printf "%15s : %-6d%6.2f %%%n"
+              (name key) num (float (* 100 (/ num total)))))))
+{% endcodeblock %}
+
+上面代码定义的`analyze-results`函数将从`cv-from-corpus`返回的交叉验证结果集序列中的元素传入`result-type`函数得到所有样本最终分类的结果，然后计算出分类正确的样本个数，分类错误的样本个数以及无法分类的样本个数。`print-result`函数用来将交叉验证的分析结果打印出来。需要注意的是在`print-result`函数中我们使用了`printf`函数，其实内部调用的是`format`函数类似C语言的`printf`函数，可以看到`%15s`这个形式表示填充的是一个字符串内容，并且如果填充的内容不够15个字符的画会用空格填充在输出结果的头部，如果超过15个字符那就正常输出。`%-6d`表示填充的内容是整数，并且如果整数的长度不足6个字符时是在输出结果的尾部填充空格。`%6.2f`表示填充的内容是一个浮点数，总长度是6，小数点后保留两位。可以看到`printf`函数中的数字其实就是要输出的内容至少是这个字符长度，如果给定的内容小于这个长度那就用空字符来填充，默认是填充在头部，如果加了`-`就填充在尾部。最后，让我们来定义一个函数来调用`populate-emails`函数来从磁盘上获得邮件样本数据，然后再利用这些获得数据调用之前定义过的函数来训练和交叉验证我们的分类器模型，并最终把交叉验证的结果分析并打印。如果磁盘上没有邮件样本的时候，那么`populate-emails`函数可能会输出空列表或者是`nil`，所以我们需要做一个错误检查机制，在没有邮件样本数据的时候抛出异常。如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn train-and-cv-classifier [cv-frac]
+  (if-let [emails (seq (populate-emails))]
+    (-> emails
+        (test-classifier! cv-frac)
+        analyze-results
+        print-result)
+    (throw (Error. "No mails found!"))))
+{% endcodeblock %}
+
+上面代码定义的`train-and-cv-classifier`函数会首先调用`populate-emails`函数来获取邮件样本数据，注意到我们使用了`seq`函数，因为我们要用`if-let`函数来判定返回的是否是空列表，而空列表是逻辑真的，使用`seq`函数可以将空列表转换为`nil`从而变成了逻辑假。假如成功地从磁盘上载入了邮件样本，我们就可以使用这些数据作为语料库来训练和交叉验证我们的分类器。假如载入样本数据失败，我们就抛出一个异常。
+
+现在我们已经有了创建和训练一个垃圾邮件分类器的工具。最开始的时候，由于分类器还没有接触过任何邮件，每一封邮件可能是垃圾邮件的概率都是$$0.5$$，分类结果是`:unsure`，我们可以用`classify`函数来验证这个条件，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (classify "Make money fast")
+[:unsure 0.5]
+user> (classify "Job interview today! Programmer job position for GNU
+project")
+[:unsure 0.5]
+{% endcodeblock %}
+
+我们现在需要使用`train-and-cv- classifier`函数来训练和交叉验证我们的分类器，我们会选取整个语料库的五分之一的样本作为我们的交叉验证数据集。如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (train-and-cv-classifier 1/5)
+          total : 559   100.00 %
+        correct : 538    96.24 %
+ false-positive : 2       0.36 %
+ false-negative : 6       1.07 %
+     missed-ham : 6       1.07 %
+    missed-spam : 7       1.25 %
+nil
+{% endcodeblock %}
+
+交叉验证可以对我们分类器的分类结果进行断言，可以判断分类器是否正确地分类了邮件样本，可以评估我们邮件分类器的性能。当然，交叉验证的结果中肯定是有分类错误和无法分类的样本存在的，但是随着训练样本的增大，我们可以减小这些错误分类结果的数量。现在让我们用训练好的垃圾邮件分类器来对给定的邮件内容进行分类，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (classify "Make money fast")
+[:spam 0.9343264767829097]
+user> (classify "Job interview today! Programmer job position for GNU
+project")
+[:ham 0.2580360815298527]
+{% endcodeblock %}
+
+有趣的是，如上面代码所示邮件内容是"Make money fast"的邮件被分类为了垃圾邮件，邮件内容为"Job interview ... GNU project"的邮件被分类为正常邮件。让我们来看一下一个训练好的分类器是如何利用`extract-features`函数来从邮件内容中提取出已知单词特征的。因为初识的时候分类器还没有读取任何的训练语料，所以一个没有训练过的分类器调用这个函数将会返回一个空列表或者`nil`(用seq函数作用在空列表就会返回nil)，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (extract-features "some text to extract")
+(#clj_ml5.spam.TokenFeature{:token some, :spam 213, :ham 562}
+ #clj_ml5.spam.TokenFeature{:token text, :spam 2342, :ham 1021}
+ #clj_ml5.spam.TokenFeature{:token extract, :spam 21, :ham 9})
+{% endcodeblock %}
+
+如上面代码所示，每一个`TokenFeature`记录会存有给定单词在垃圾邮件中出现的次数以及给定单词在正常邮件中出现的次数，当然由于我们只提取字符数大于3的单词作为特征，所以"to"这个单词并没有被`extract-features`函数提取出来。
+
+
+
+## 本章概要
+
+
