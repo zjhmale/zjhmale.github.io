@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "大白话LR"
-date: 2014-08-14 11:52:36 +0800
+date: 2014-03-14 11:52:36 +0800
 comments: true
 categories: ml
 ---
