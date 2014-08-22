@@ -604,12 +604,12 @@ project")
 
 {% codeblock lang:clojure %}
 user> (train-and-cv-classifier 1/5)
-          total : 559   100.00 %
-        correct : 538    96.24 %
- false-positive : 2       0.36 %
- false-negative : 6       1.07 %
-     missed-ham : 6       1.07 %
-    missed-spam : 7       1.25 %
+          total : 600   100.00 %
+        correct : 585    97.50 %
+ false-positive : 1       0.17 %
+ false-negative : 1       0.17 %
+     missed-ham : 9       1.50 %
+    missed-spam : 4       0.67 %
 nil
 {% endcodeblock %}
 
@@ -634,8 +634,89 @@ user> (extract-features "some text to extract")
 
 如上面代码所示，每一个`TokenFeature`记录会存有给定单词在垃圾邮件中出现的次数以及给定单词在正常邮件中出现的次数，当然由于我们只提取字符数大于3的单词作为特征，所以"to"这个单词并没有被`extract-features`函数提取出来。
 
+现在，让我们来检查垃圾邮件分类器对于垃圾邮件的敏感性。我们首先需要选出一些没有办法进行分类的内容，对于选取的这个样本数据中，"Job"这个单词满足这个需求，如下面代码所示，让我们把"Job"当做正常邮件中出现的词传入`train!`函数来训练分类器，如下所示：
 
+{% codeblock lang:clojure %}
+user> (classify "Job")
+[:unsure 0.6871002132196162]
+user> (train! "Job" :ham)
+#<Agent@1f7817e: 1993>
+user> (classify "Job")
+[:unsure 0.6592140921409213]
+{% endcodeblock %}
+
+将"Job"单词当做正常邮件中出现的单词训练分类器之后，可以看到含有"Job"单词的邮件是垃圾邮件的后验概率减小了一些，假如分类器再将"Job"单词作为正常邮件中出现的单词继续训练好几次，那么最终分类器会将仅含有"Job"单词的邮件分类为正常邮件。可以看见分类器对于一封信的正常邮件并不是很敏感，训练的收敛速度很慢。相反的，分类器对于垃圾邮件就很敏感了，如下代码所示：
+
+{% codeblock lang:clojure %}
+user> (train! "Job" :spam)
+#<Agent@1f7817e: 1994>
+user> (classify "Job")
+[:spam 0.7445135045480734]
+{% endcodeblock %}
+
+从上面的例子可以看到将"Job"当做垃圾邮件中出现的单词训练一次之后，分类器迅速将有单词"Job"出现的邮件是垃圾邮件的概率提升了将近$$0.1$$。但是我们并不总是这么好运的，有时候如果一个单词在垃圾邮件以及正常邮件中出现的次数都很大，那么再将这个词作为垃圾邮件中出现的概率反而会降低预测是否是垃圾邮件的后验概率，而有时候垃圾邮件和正常邮件训练收敛的速度其实差不多，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn check-train
+  [token type]
+  (print (str "total-ham: " @total-ham "\n"
+              "total-spam: " @total-spam "\n"
+              "classify: " (classify token) "\n"))
+  (println (get @feature-db token))
+  (train! token type)
+  (await feature-db)
+  (println (str "after trained classify: " (classify token) "\n")))
+
+user> (check-train "text" :spam)
+total-ham: 1123
+total-spam: 1134
+classify: [:unsure 0.6945923301417336]
+#clj_ml5.spam.TokenFeature{:token text, :spam 2249, :ham 979}
+after trained classify: [:unsure 0.6944996980949381]
+
+user> (check-train "persistence" :spam)
+total-ham: 1123
+total-spam: 1135
+classify: [:unsure 0.6516620025936795]
+#clj_ml5.spam.TokenFeature{:token persistence, :spam 8, :ham 4}
+after trained classify: [:unsure 0.6762897705666117]
+user> (check-train "persistence" :ham)
+total-ham: 1123
+total-spam: 1136
+classify: [:unsure 0.6762897705666117]
+#clj_ml5.spam.TokenFeature{:token persistence, :spam 9, :ham 4}
+after trained classify: [:unsure 0.6310542753439689]
+{% endcodeblock %}
+
+这些训练收敛的速率，或者说一次训练对于后验概率的影响程度都是根据我们用于对问题建模的卡方分布的性质决定的，有兴趣的读者可以自行证明其中蕴含的关系。
+
+此外，我们还可以通过减少交叉验证集样本个数，增加训练集样本个数的方法来提升垃圾邮件分类器的性能，减小最终验证的误差值。为了演示这个效果，让我们把交叉验证集样本的数量变为整个语料库中样本数量的十分之一，一次我们可以用十分之九的数据来进行训练，使用十分之一的数据来进行验证，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (train-and-cv-classifier 1/5)
+          total : 300 100.00 %
+        correct : 294    98.00 %
+ false-positive : 0       0.00 %
+ false-negative : 1       0.33 %
+     missed-ham : 3       1.00 %
+    missed-spam : 2       0.67 %
+nil
+{% endcodeblock %}
+
+如上面代码所示，当我们使用跟多的样本来进行训练时，最终验证测试时错误分类与无法分类的样本个数所占的比例都有所降低。当然这只是作为一个例子演示，实际上我们需要收集更多的邮件样本来作为训练数据传递给分类器，而不是减少我们的交叉验证数据集的大小，使用大量的数据作为交叉验证数据集也是一条最佳实践的方法。
+
+至此，我们利用费舍尔方法建立了一个有效的垃圾邮件分类器。我们同样实现了一个交叉验证诊断机制，来作为训练后的分类器的单元测试。
+
+>需要注意的是train-and-cv-classifier函数输出的结果会根据我们用于训练分类器使用的训练数据集的不同而变化。
 
 ## 本章概要
 
+在这一章中，我们探索了用于诊断与提升给定机器学习模型的技术方法，总结如下：
 
+* 我们研究了一个模型对于给定的训练数据如果出现欠拟合或者过拟合会发生什么问题，并且讨论了如何诊断一个训练好的机器学习模型是否是欠拟合或者过拟合的方法。
+* 我们探索了交叉验证机制，了解了它是如何确定一个训练好的模型对于未知的数据会如何响应。我们还了解了如何通过交叉验证机制来选择模型的特征以及损失函数的正则化系数。此外还讨论了一些常见的可以用在给定模型之上的交叉验证方法。
+* 我们简单地探索了学习曲线的概念，以及如何利用学习曲线来诊断一个训练后的模型是过拟合状态还是欠拟合状态。
+* 我们学习了利用`clj-ml`库提供的工具来对给定的分类器进行交叉验证。
+* 最后，我们建立了一个可执行的垃圾邮件分类器，并且使用了交叉验证来确定训练后的分类器是否能正确分类没有在训练时出现过的邮件样本。
+
+在接下来的章节中，我们将会继续探索更多的机器学习模型，首先我们就会开始学习**支持向量机(SVMs)**。
