@@ -41,7 +41,7 @@ K-means算法的迭代过程可以用下面的一组图来可视化地展示：
 
 K-means聚类算法的优化目标可以用如下表达式形式化地描述：
 
-$$\underset{s}{arg \; min} \sum_{i=1}^{K} \sum_{X_{j} \epsilon S_{i}} \left \| X_{j} - \mu _{i} \right \|^{2}$$
+$$\underset{s}{arg \; min} \sum_{i=1}^{K} \sum_{X_{j} \in S_{i}} \left \| X_{j} - \mu _{i} \right \|^{2}$$
 
 在上面表达式中定义的最优化问题中，$$\mu_{1}, \mu_{2}, \cdots, \mu_{k}$$这几项代表了用来聚类输入值的簇的重心坐标值。K-means算法可以最小化每一个簇的大小，同时也确定了每一个簇的重心位置。
 
@@ -479,4 +479,190 @@ user> (clusterer-cluster k-means-clusterer iris-dataset)
 
 ## 使用层次聚类
 
+**层次聚类(Hierarchical clustering)**是另一在聚类分析中常用的技术，层次聚类分为自顶向下和自底向上两种，自顶向下的方法是指初始时将数据集中的所有数据对象看做是一个簇，而后根据某些规则逐步细分分成不同的簇，然后递归细分的步骤直到某一终止条件。自底向上的方法是指先把每一对象看做一个簇，使用迭代的方法处理这些簇，在每次迭代中将根据某一规则计算出的最相近的两个簇合并为一个簇，直到簇的数量达到达到指定的值终止算法的执行。自底向上的聚类方法也称为**聚集型聚类(agglomerative clustering)**，而自顶向下的聚类方法也称为**分裂型聚类(divisive clustering)**。
+
+因此在聚集型聚类算法中，我们是将多个小的簇来组成一个大的簇，而在分裂型聚类算法中我们是将一个大的簇切分为多个小的簇。在算法性能上，现在常用的聚集型聚类算法的实现一般的时间复杂度为$$O(n^{2})$$，而分裂型聚类算法的时间复杂度则要高一些，为$$O(2^{n})$$。
+
+假设在我们的训练数据集中有6个样本，在下面的例子中，使用二维坐标系来描述我们的特征空间，所有的输入样本都是一个二维空间中的点，如下图所示：
+
+<center>
+	<img src="/images/cljml/chap7/image2.png">
+</center>
+
+然后我们可以对这些输入样本进行聚集型聚类，最终产生的聚类后的层次结构如下图所示：
+
+<center>
+	<img src="/images/cljml/chap7/image3.png">
+</center>
+
+在上图中可以看到样本$$b$$和样本$$c$$在当前的空间分布中距离最近，所以这两个样本被分组到了一个簇中。类似的，样本d和样本e也被分组到了另一个簇中。最终这个层次聚类的最终结果是一颗关于输入样本数据的二叉树或者是一个关于输入样本数据的树状图。实际上，像$$bc$$和$$def$$这样的簇都是作为其他簇的二叉子树的根节点被加入到最终聚类得到的层级结构中。尽管这个处理过程，在对于特征空间是二维空间时相对简单容易，但是如果训练数据集中每一个样本都在一个很高维度的特征空间内，那么这个过程将变得繁琐，因为需要计算在高维特征空间中多个样本点之间的距离。
+
+不论是在聚集型聚类技术还是分裂型聚类技术中，都需要计算训练数据中两两样本点之间的相似度。我们可以计算两两样本输入值的距离来作为相似度的标准，距离最近的两组样本输入值被分组到一个簇中，然后然后重新计算各个簇之间或者样本输入点之间的联动性或者相似度。
+
+层次聚类算法中选择的不同的距离度量方法会决定这个聚类算法最终聚类结束之后各个簇的形状。一组常用的用于确定向量$$X$$和向量$$Y$$之间距离的度量方法是使用欧氏距离$$\left \| X - Y \right \|_{2}$$，与平方欧式距离$$\left \| X - Y \right \|_{2}^{2}$$，这两个距离度量函数可以形式化地表述如下：
+
+$$\begin{align*}
+& \left \| X - Y \right \|_{2} = \sqrt{\sum_{i}(X_{i} - Y_{i})} \\
+& \left \| X - Y \right \|_{2}^{2} = \sum_{i}(X_{i} - Y_{i})
+\end{align*}$$
+
+另一种经常使用的两个输入向量之间的距离计算方法是最大距离$$\left \| X - Y \right \|_{\infty}$$，这个方法是依次计算给定的两个向量中每一个对应位置上元素值的差值的绝对值，并取数值最大的绝对值作为这两个向量之间的距离。这个方法也可以形式化地表述如下：
+
+$$\left \| X - Y \right \|_{\infty} = \underset{i}{arg \; max} \left | X_{i} - Y_{i} \right |$$
+
+层次聚类算法中另一个很重要的概念是联动标准(linkage criteria)，可以有效的描述和衡量输入样本数据中两个簇之间的相似性或者相异性。常用的用来确定两个输入值的联动性的方法有**单点联动聚类(single linkage clustering)**和**完全联动聚类(complete linkage clustering)**，这两种方法都属于聚集型聚类的形式。
+
+在聚集型聚类算法中，两个距离最短的输入样本或者簇会被合并为一个新的簇。当然不同的聚集型聚类算法对于"最短距离"的定义都各不相同。在完全联动聚类方法中，两个簇之间的距离被定义为这两个簇中距离最远的两个样本点之间的距离值。因此这种方法也被称为**最远邻聚类(farthest neighbor clustering)**。这种计算两个簇之间的距离$$D(X, Y)$$的度量标准可以形式化地表述如下：
+
+$$D(X, Y) = \underset{x \in X, y \in Y}{arg \; max} d(x, y)$$
+
+上面等式中的函数$$d(x, y)$$表示$$x$$和$$y$$这两个向量之间的距离，而计算距离的常见方法我们已经在上文介绍过了。完全联动聚类本质上会利用上述的等式计算各个簇或者输入值之间的距离，然后选择两个距离最短的簇或者输入值合并为一个新的簇，然后重复这个合并过程直到只剩下一个簇。
+
+与完全联动聚类相反，在单点联动聚类中两个簇之间的距离被定义为这两个簇中距离最短的两个样本点之间的距离，因此单点联动聚类也被称为**最近邻聚类(nearest neighbor clustering)**，可以形式化的表述如下：
+
+$$D(X, Y) = \underset{x \in X, y \in Y}{arg \; min} d(x, y)$$
+
+另一种很流行的层次聚类技术是**Cobweb算法**。这个算法是**概念聚类(conceptual clustering)**的一种形式，在概念聚类中，聚类算法会为每一个生成的簇产生一个概念。这里指的"概念"是一个对某一类数据的精简的格式化描述。有趣的是，概念聚类算法与我们在第三章中讨论过的决策树学习算法非常相似。Cobweb算法将所有的的簇放入到一个分类树中，这颗分类树中的每一个节点存储了这个节点下面子节点的概念或者说是描述信息，而这颗分类树的叶子节点也就代表了聚类之后的簇。我们利用非叶子节点中存储的概念可以对缺失了一些特征值的输入样本的类别进行预测。在这个意义上来说，Cobweb算法这种技术可以被用在测试数据集中有的样本缺少特征值或者存在未知特征值的情况。
+
+现在将演示如何实现一个简单的层级聚类器。在这个实现中，我们会扩展Clojure语言，我们会将一些在本个例子中会需要用到的一些功能嵌入到Clojure语言标准库中的向量数据结构中，也就是我们需要扩展`clojure.lang.PersistentVector`这个标准库中的数据结构。
+
+对于接下来要做的例子，我们需要clojure.math.numeric-tower库，为了将这个库加入到Leiningen项目中，我们需要在project.clj文件中加入相关的依赖：<br/>
+[org.clojure/math.numeric-tower "0.0.4"]<br/>
+同时为了在代码中可以使用这个库中的函数，我们需要修改代码中的名字空间声明，如下所示：<br/>
+(ns my-namespace<br/>
+&nbsp;&nbsp;(:use [clojure.math.numeric-tower :only [sqrt]]))
+
+在本例的实现中，我们会利用欧式距离来计算两个样本点之间的距离。我们可以用`reduce`函数和`map`函数来实现一个可以计算某一个序列所有元素平方和的函数从而来实现计算欧式距离。如下代码所示：
+
+{% codeblock lang:clojure %}
+(defn sum-of-squares [coll]
+  (reduce + (map * coll coll)))
+{% endcodeblock %}
+
+上面代码中定义的`sum-of-squares`函数被用来计算样本之间的距离。现在来定义两个协议(protocol)来对我们将要对特定的数据类型进行的操作进行一个抽象。从工程的角度上来讲，这两个协议其实可以合并为一个单独的协议，因为这两个协议会被组合使用。
+
+然而为了清楚起见，在本例中我们依然分开定义这两个协议：
+
+{% codeblock lang:clojure %}
+(defprotocol Each
+  (each [v op w]))
+
+(defprotocol Distance
+  (distance [v w]))
+{% endcodeblock %}
+
+在`Each`协议中定义的`each`函数中，将一个操作行为`op`作用在两个序列`v`和`w`对应位置的元素上，也就是遍历`v`和`w`两个序列中每一个位置的值，将对应位置的两个元素传入`op`函数中得到一个新的结果。`each`函数和标准库中的`map`函数很类似，但是`each`函数可以根据序列`w`中元素的数据类型来决定如何使用函数`op`。`Distance`协议中定义的`distance`函数用来计算两个集合`v`和`w`表示的两个向量之间的距离值。注意到我们使用通用的描述"集合"因为我们现在看到的是一个抽象协议，而不是这些协议中函数的具体实现。我们将在本例中实现上面两个协议，并将实现的实例作为嵌入到`clojure.lang.PersistentVector`这个数据类型中。当然我们也可以将其他的数据类型也实现这个协议中的函数，从而来扩展数据类型，比如`map`类型以及`set`类型。
+
+在本节的例子中，我们将实现单点联动聚类作为联动标准。首先我们要定义一个函数来从一个向量集合中确定两个距离值最小的向量。为了做到这一点，我们可以使用`min-key`函数，这个函数可以返回一个序列中最小值对应的键，即使这个序列是一个向量(vector)类型。有趣的是，在Clojure中的确是可行的，因为我们可以把一个vector类型的对象也当做是一个map类型的对象，其中每一个元素对应的下标值就可以看做是这个元素对应的键。我们用如下代码可以实现选择最近两个向量的函数：
+
+{% codeblock lang:clojure %}
+(defn closest-vectors [vs]
+  (let [index-range (range (count vs))]
+    (apply min-key
+           (fn [[x y]] (distance (vs x) (vs y)))
+           (for [i index-range
+                 j (filter #(not= i %) index-range)]
+             [i j]))))
+{% endcodeblock %}
+
+上面代码定义的`closest-vectors`函数使用`for`形式确定了序列`vs`中所有可能出现的两两下标组合。需要注意的是`vs`是一个内部元素也为向量类型的向量。然后根据得到的所有下标组合从`vs`中取出相应的一对向量然后传给`distance`函数来计算这一对向量之间的距离大小，然后用`min-key`函数来逐个比较所有计算出来的距离值。这个函数最后会返回距离值最最小的一对向量对应的下标值，进而来实现单点联动聚类。
+
+我们还要计算每一次通过`closest-vectors`函数选出来的两个需要被组合为一个簇的向量的均值，我们可以利用之前在`Each`协议中定义的`each`函数以及Clojure中的`reduce`函数来做到这一点，如下所示：
+
+{% codeblock lang:clojure %}
+(defn centroid [& xs]
+  (each
+   (reduce #(each %1 + %2) xs)
+   *
+   (double (/ 1 (count xs)))))
+{% endcodeblock %}
+
+上面代码定义的`centroid`函数会计算一个向量序列中所有向量的平均值。需要注意的是要使用`double`函数来保证`centroid`函数返回的重心向量中每一个元素的数据类型是双精度浮点数。
+
+我们现在来将`Each`协议和`Distance`协议扩展到Clojure中的向量数据类型，并且实现两个协议中制定的行为，使得这些行为成为`clojure.lang.PersistentVector`数据类型的一部分，达到了扩展语言自身的效果，我们可以使用`extend-type`函数来做到这一点，如下代码所示：
+
+{% codeblock lang:clojure %}
+(extend-type clojure.lang.PersistentVector
+  Each
+  (each [v op w]
+    (vec
+     (cond
+      (number? w) (map op v (repeat w))
+      (vector? w) (if (>= (count v) (count w))
+                    (map op v (lazy-cat w (repeat 0)))
+                    (map op (lazy-cat v (repeat 0)) w)))))
+  Distance
+  ;; 实现了欧氏距离计算行为
+  (distance [v w] (-> (each v - w)
+                      sum-of-squares
+                      sqrt)))
+{% endcodeblock %}
+
+上面代码中首先实现了`each`函数，从而可以将`op`操作作用在第一个参数`v`和第二个参数`w`上，其中参数`v`是一个向量类型的参数，参数`w`则既可以是数字也可以是向量类型。假如`w`是一个数字，那么我们先用`repeat`函数来构造一个所有元素都是`w`的无限长的惰性序列，然后利用`map`函数将`op`行为作用在向量`v`和这个惰性序列上，从而得到一个新的序列作为`each`函数的结果。假如`w`是向量类型，在这种情况下我们还要判断`v`和`w`两个向量的长度是否一致，如果不一致，我们需要用`lazy-cat`函数在较短的那个向量后面进行补零操作，这同样产生一个无限长的惰性序列，然后再用`map`函数将`op`行为作用到未进行补零操作的向量和经过补零操作之后的惰性序列上。需要注意的是，`each`函数内计算的结果要返回是需要经过`vec`函数的包装，从而保证返回的结果总是向量类型。
+
+上面代码之后实现了`distance`函数，在这个函数中我们使用`clojure.math.numeric-tower`名字空间下的`sqrt`函数以及之前实现的`sum-of-squares`函数来计算传入的两个向量`v`和`w`之间的欧氏距离的值。
+
+现在我们已经有了要实现一个可以对一组向量数据集进行层级聚类的函数的所有基础部分。我们可以用之前定义的`centroid`函数和`closest-vectors`函数来大致地实现一个可以用来层级聚类的函数，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn h-cluster
+  "对于给定的数据集进行层级聚类，其中传入的数据集应该是一个
+  每一个元素都是一个map对象且格式为{:vec [1 2 3]}的序列。"
+  [nodes]
+  (loop [nodes nodes]
+    (if (< (count nodes) 2)
+      nodes
+      (let [vectors    (vec (map :vec nodes))
+            [l r]      (closest-vectors vectors)
+            node-range (range (count nodes))
+            new-nodes  (vec
+                        (for [i node-range
+                              :when (and (not= i l)
+                                         (not= i r))]
+                          (nodes i)))]
+        (recur (conj new-nodes
+                     {:left (nodes l) :right (nodes r)
+                      :vec (centroid
+                            (:vec (nodes l))
+                            (:vec (nodes r)))}))))))
+{% endcodeblock %}
+
+我们可以将一组格式化的每一个元素都是map对象的向量传递给上面代码定义的`h-cluster`函数。在传入的向量中，每一个map对象中只有一个键值对，其中键为`:vec`而值则是一个描述样本点特征值的向量。`h-cluster`函数首先利用`:vec`关键字从所有map对象中提取出了输入样本点，并使用`closest-vectors`函数来确定两个距离最近的样本点。因为`closest-vectors`函数返回的值是一个含有两个距离最近样本点对应的下标值的向量，所以我们必须将除了由`closest-vectors`确定的两个向量以外剩下的向量重新组成一个新的待聚类向量集。我们可以使用`for`这个特殊的宏来做到这一点，在这个宏中我们可以使用`:when`关键字来指定一个判断用的条件从句。然后我们使用`centroid`函数来计算之前选出来的两个距离最近的向量的平均值作为新产生的簇的重心值。然后利用计算出来的重心值来生成一个新的map对象加入到之前生成的待聚类向量集中，而之前已经选出的两个距离最近的样本点将不会再出现在待聚类的向量集中了。然后使用`loop`形式让上述过程不断迭代，直到所有样本点都聚类到了一个簇中为止。我们可以在REPL中查看`h-cluster`函数的行为，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (h-cluster [{:vec [1 2 3]} {:vec [3 4 5]} {:vec [7 9 9]}])
+[{:left {:vec [7 9 9]},
+ :right {:left {:vec [1 2 3]},
+         :right {:vec [3 4 5]},
+         :vec [2.0 3.0 4.0]},
+ :vec [4.5 6.0 6.5] }]
+{% endcodeblock %}
+
+如上面代码所示，待聚类的样本集中的三个样本分别是`[1 2 3]`，`[3 4 5]`以及`[7 9 9]`，`h-cluster`函数先将`[1 2 3]`和`[3 4 5]`两个样本分组到了一个簇中，这个新产生的簇的重心值可以利用`[1 2 3]`和`[3 4 5]`两个向量来进行计算，结果为`[2.0 3.0 4.0]`。再进行第二次聚类迭代时，这个新产生的簇和`[7 9 9]`这个样本一起合并为了一个新的簇，而此时所有样本都被分组到了同一个簇中，聚类操作也结束了，最终得到的簇的重心值为`[4.5 6.0 6.5]`。因此我们可以看到，使用`h-cluster`函数可以用来将待聚类样本进行层级聚类将所有的样本都聚集到一个簇中，并且可以看到每一次聚类的结果以及整个聚类过程得到的层级结构，方便后续划分。需要注意的是，在上面的例子中为了实现的简便起见，我们在计算两个簇之间的距离时并没有严格按照单点联动聚类里规定的准则，而是直接用了两个簇的重心之间的距离来作为聚类的标准。
+
+`clj-ml`库中提供了一种Cobweb层级聚类算法的实现，我们可以将`:cobweb`关键字传给`make-clusterer`函数从而得到一个Cobweb层级聚类器的实例，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def h-clusterer (make-clusterer :cobweb)
+{% endcodeblock %}
+
+上面代码中使用`h-clusterer`变量定义的聚类器可以使用之前定义过的`train-clusterer`函数和`iris-dataset`数据集来进行训练，如下面代码所示：
+
+{% codeblock lang:clojure %}
+user> (train-clusterer h-clusterer iris-dataset)
+#<Cobweb Number of merges: 0
+Number of splits: 0
+Number of clusters: 3
+
+node 0 [150]
+|   leaf 1 [96]
+node 0 [150]
+|   leaf 2 [54]
+{% endcodeblock %}
+
+在如上所示REPL的输出中，Cobweb聚类算法将输入的待聚类数据集聚类到了两个簇中国。其中一个簇有96个样本，而另一个簇有54个样本。这个聚类结果与我们之前使用K-means算法进行聚类之后的聚类结果很不一样，在这个情况下Cobweb聚类算法的性能显然没有K-means聚类算法的性能好。总的来说，`clj-ml`库让我们很容易地就可以创建并且训练一个Cobweb聚类器。
+
+## 使用期望极大(EM)算法
+
+**期望极大(EM)**算法是一种利用概率估计的方法来确定一个聚类模型从而拟合给定的训练数据集。这个算法对定制的预估模型参数进行**极大似然估计(MLE)**，从而找到一组最佳的模型参数用于聚类操作(更多信息可以参考"Maximum likelihood theory and applications for distributions generated when observing a function of an exponential family variable"这篇论文)。
 
