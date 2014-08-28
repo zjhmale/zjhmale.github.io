@@ -728,8 +728,279 @@ Petal.Width
 
 ## 使用自组织神经网络
 
-正如我们在第四章中提到的，自组织神经网络可以用来对非监督机器学习问题进行建模，比如聚类问题(更多信息可以参考"Self-organizing Maps as Substitutes for K-Means Clustering"这篇论文)。
+正如我们在第四章中提到的，自组织神经网络可以用来对非监督机器学习问题进行建模，比如聚类问题(更多信息可以参考"Self-organizing Maps as Substitutes for K-Means Clustering"这篇论文)。快速回顾一下，一个自组织神经网络(SOM)是人工神经网络中的一种，用来将一个在高维特征空间中的样本输入向量映射到一个维度较低的输出空间中。而且这种映射基本保留了输入样本数据集中的模式以及拓扑关系。经过训练后的自组织神经网络中输出空间的神经元会对某一类输入样本产生较高的激活值。因此在对样本处于较高维度的特种空间中的数据集进行聚类时使用自组织神经网络是一种不错的解决方案。
+
+`Incanter`库提供了一种简单而优雅的自组织网络实现，可以让我们相对容易的构建一个自组织神经网络。在后面的例子中会演示如何使用`Incanter`库提供的自组织神经网络实现，并会对`Iris`数据集中的样本进行聚类。
+
+>要将Incanter库引入Leiningen项目中，我们需要将相应的依赖加入到project.clj文件中：<br/>
+[incanter "1.5.4"]<br/>
+在下面的例子中要在代码中使用Incanter库中的函数，我们需要修改代码中的名字空间声明从而引入Incanter库中的名字空间，如下所示：<br/>
+(ns my-namespace<br/>
+&nbsp;&nbsp;(:use [incanter core som stats charts datasets]))
+
+我们首先利用`Incanter`库中的`get-dataset`，`sel`和`to-matrix`函数来定义训练数据集，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def iris-features (to-matrix (sel (get-dataset :iris)
+                                   :cols [:Sepal.Length
+                                          :Sepal.Width
+                                          :Petal.Length
+                                          :Petal.Width])))
+{% endcodeblock %}
+
+上面代码中定义的`iris-features`变量实际上是一个$$150 \times 4$$大小的矩阵来表示从`Iris`数据集中选出的150个样本，而每一个样本有4个维度的特征。然后我们就可以使用这个创建好的训练数据集以及`incanter.som`名字空间中的`som-batch-train`函数来创建并训练一个自组织神经网络，如下所示：
+
+{% codeblock lang:clojure %}
+(def som (som-batch-train
+          iris-features :cycles 10 :alpha 0.5 :beta 3))
+{% endcodeblock %}
+
+上面代码定义的`som`变量实际上是一个有很多组键值对的map对象。在这个map对象中`:dims`键对应的值是一个向量，这个向量中的元素是用来描述自组织神经网络输出层的晶格解构的，这里指的晶格解构其实就是第四章中描述自组织神经网络的图片上方的那一层输出神经元。我们可以在REPL中查看这个向量的值，如下所示：
+
+{% codeblock lang:clojure %}
+user> (:dims som)
+[10.0 2.0]
+{% endcodeblock %}
+
+因此我们可以说当前生成的自组织神经网络的输出层的晶格形状是一个$$10 \times 2$$的矩阵。`:sets`键对应的值比较有意思，这个值依然是一个map对象，这个map对象中的键表示最终聚类结束后自组织神经网络输出层激活值最高的三个神经元节点在晶格结构中的坐标位置，，也就是最终聚类后的簇的中心神经元节点，而map对象的值就是被分组到中心神经元节点对应的簇中所有样本点在原训练数据集中的下标值。我们同样在REPL中进行查看，如下所示：
+
+{% codeblock lang:clojure %}
+user> (:sets som)
+{[4 1] (144 143 141 ... 102 100),
+ [8 1] (149 148 147 ... 50),
+ [9 0] (49 48 47 46 ... 0)}
+{% endcodeblock %}
+
+如上面REPL输出结果所示，输入数据集被聚类成了三个簇。我们可以利用`incanter.stats`名字空间中的`mean`函数来计算每一个簇的重心值，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def feature-mean
+  (map #(map mean (trans
+                   (sel iris-features :rows ((:sets som) %))))
+       (keys (:sets som))))
+{% endcodeblock %}
+
+我们可以使用`Incanter`库中的`xy-plot`，`add-lines`以及`view`函数来实现一个函数将上面求得的几个簇的重心位置画出来，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn plot-means []
+  (let [x (range (ncol iris-features))
+        cluster-name #(str "Cluster " %)]
+    (-> (xy-plot x (nth feature-mean 0)
+                 :x-label "Feature"
+                 :y-label "Mean value of feature"
+                 :legend true
+                 :series-label (cluster-name 0))
+        (add-lines x (nth feature-mean 1)
+                   :series-label (cluster-name 1))
+        (add-lines x (nth feature-mean 2)
+                   :series-label (cluster-name 2))
+        view)))
+{% endcodeblock %}
+
+调用我们上面定义的`plot-means`函数，我们可以画出以下的折线图：
+
+<center>
+	<img src="/images/cljml/chap7/image4.png">
+</center>
+
+上面画出的折线图向我们展示了自组织神经网络(SOM)聚类之后每一个簇的重心值，其中上面每一条折线中每一个拐点对应的纵轴值就是每一个簇中每一个特征的平均值，也可以看到由于`plot-means`函数中实际上是将每个簇对应的重心序列的下标值作为横轴值，序列中的元素作为纵轴值，所以每一条折线都有四个拐点，对应的横轴值分别是0, 1, 2, 3。从上图中可以看到Cluster0和Cluster1这两个簇的重心位置很相近。然而，第三个簇Cluster2的重心位置则和其他两个簇的重心位置相差很大，因此这个簇对应的折线的形状也和其他两个簇对应的折线形状完全不一样。当然，上面的图并没有给我们更多关于输入样本数据围绕这些重心值(平均值)的分布情况或者是变化情况。因为现在每一个样本中都有四个特征，所以要画成图表观察只能是以上图所示的折线图的形式，为了更好地可视化这些特征值，我们需要将每一个样本数据中的特征维度变换到两个或者三个，这样就可以很好地可视化出数据集的特征空间。在本章中的后面一节中，将会详细讨论降低训练样本数据集中特征空间维度的概念与方法。
+
+我们还可以利用`sel`函数与`frequencies`函数将聚类之后每一个簇中的样本的预测类别和真实类别打印出来，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn print-clusters []
+  (doseq [[pos rws] (:sets som)]
+    (println pos \:
+             (frequencies
+              (sel (get-dataset :iris)
+                   :cols :Species :rows rws)))))
+{% endcodeblock %}
+
+我们可以在REPL中调用上面代码定义的`print-clusters`函数，从而观察最终聚类的结果：
+
+{% codeblock lang:clojure %}
+user> (print-clusters)
+[4 1] : {virginica 23}
+[8 1] : {virginica 27, versicolor 50}
+[9 0] : {setosa 50}
+nil
+{% endcodeblock %}
+
+如上面的输出结果所示，`virginica`和`setosa`两个品种的花似乎可以被适当地划分到两个簇中。然而在含有`versicolor`品种样本的簇中也同样含有27个`virginica`品种的样本，要解决这个问题可以通过增大训练数据集中样本的数量或者为每一个样本添加更多的特征两种方法来进行补救。
+
+总的来说，`Incanter`库为我们提供了一种非常简洁的自组织神经网络的实现，让我们可以很容易地利用给定的数据集来创建并且训练一个自组织神经网络聚类器，在上面的例子中我们将`Iris`数据集作为训练数据集。
 
 ## 使用降维技术
 
+为了可以简单直观地可视化高维非标记样本数据集中样本点的分布情况，我们必须减小样本数据集的特征空间维度到两维或者三维。一旦我们将输入样本数据的特征维度降到两维或者三维，那么我们就可以较容易地以一种利于理解的方式将样本数据点可视化出来。这个减小输入样本数据特征维度的操作也被称为**降维(dimensionality reduction)**。因为这种技术可以减小样本数据的特征维度而又不会缺失一些重要的样本特征信息，所以这种技术也适用于数据压缩领域。
+
+**主成分分析(PCA)**是降维技术中常见的一种，这种降维方法可以将输入样本中的所有特征变量变换为一组线性不相关的数量更少的特征变量(更多信息，可以参考"Principal Component Analysis"这篇论文)。而变换之后得到的那一组特征变量也成为样本数据的**主成分(principal components)**。
+
+主成分分析将会使用一个协方差矩阵以及一种叫做**奇异值分解(SVD)**的矩阵操作来计算给定输入样本的主成分。协方差矩阵使用$$\sum$$来表示，可以利用有$$n$$个样本对应的输入向量组成的矩阵$$X$$来确定这个协方差矩阵：
+
+$$协方差矩阵 \; \sum = \frac{1}{n} XX_{T}$$
+
+详细解释一下上面等式中的$$X$$矩阵，假设样本集中每一个样本都有$$N$$个特征，可以用向量形式表述每一个样本：
+
+$$x_{i} = \begin{bmatrix}
+x_{i1}\\ 
+x_{i2}\\ 
+\vdots\\ 
+x_{iN}
+\end{bmatrix}$$
+
+其中需要进行均值归一化，所以需要构造一个均值向量，如下所示：
+
+$$\bar{x} = \frac{1}{n} \sum_{i=1}^{n} \begin{bmatrix}
+x_{i1}\\ 
+x_{i2}\\ 
+\vdots\\ 
+x_{iN}
+\end{bmatrix}$$
+
+根据协方差矩阵的定义：
+
+$$\sum_{ij} = cov(X_{i}, X_{j}) = E[(X_{i} - \mu_{i})(X_{j} - \mu_{j})]$$
+
+$$\sum = E[(\textbf{X} - E[\textbf{X}])(\textbf{X} - E[\textbf{X}])^{T}]$$
+
+我们可以根据上面构造的向量和协方差矩阵的定义来构造$$X$$：
+
+$$X = \begin{bmatrix}
+x_{1} - \bar{x} & x_{2} - \bar{x} & \cdots & x_{n} - \bar{x}
+\end{bmatrix}$$
+
+所以最终的协方差矩阵也可以构造出来，：
+
+$$\begin{align*}
+\sum & = \frac{1}{n} XX^{T} \\
+& = \frac{1}{n} \begin{bmatrix}
+x_{1} - \bar{x} & x_{2} - \bar{x} & \cdots & x_{n} - \bar{x}
+\end{bmatrix}
+\begin{bmatrix}
+(x_{1} - \bar{x})^{T}\\ 
+(x_{2} - \bar{x})^{T}\\ 
+\vdots \\ 
+(x_{n} - \bar{x})^{T}
+\end{bmatrix} \\
+& =
+\frac{1}{n}\begin{bmatrix}
+(X^{1} - \bar{X^{1}})^{T}(X^{1} -\bar{X^{1}}) & (X^{1} - \bar{X^{1}})^{T}(X^{2} - \bar{X^{2}}) & \cdots & (X^{1} - \bar{X^{1}})^{T}(X^{N} - \bar{X^{N}}) \\ 
+(X^{2} - \bar{X^{2}})^{T}(X^{1} -\bar{X^{1}}) & (X^{2} - \bar{x^{2}})^{T}(X^{2} - \bar{X^{2}}) & \cdots & (X^{2} - \bar{X^{2}})^{T}(X^{N} - \bar{X^{N}}) \\ 
+\vdots & \vdots & \ddots & \vdots \\ 
+(X^{N} - \bar{X^{N}})^{T}(X^{1} -\bar{X^{1}}) & (X^{N} -\bar{X^{N}})^{T}(X^{2} - \bar{X^{2}}) & \cdots & (X^{N} - \bar{X^{N}})^{T}(X^{N} - \bar{X^{N}})
+\end{bmatrix} \\
+
+& s.t. X^{i} = \begin{bmatrix}
+X_{1i} \\ 
+X_{2i} \\ 
+\vdots \\ 
+X_{Ni}
+\end{bmatrix}, \;\;\; \bar{X^{j}} = \frac{1}{n}\sum_{i=1}^{n}X_{ij}
+\end{align*}$$
+
+在计算协方差矩阵时需要将输入样本值进行均值归一化，要确保每一维特征的均值是0。此外在计算协方差矩阵之前，也可以对特征的值进行缩放。接下来，我们需要确定协方差矩阵的奇异值分解，如下所示：
+
+$$奇异值分解 \; M_{m \times n} = U_{m \times m} S_{m \times n} V_{n \times n}$$
+
+奇异值分解可以看做是将大小为$$m \times n$$的矩阵$$M$$因式分解为三个矩阵$$U$$，$$S$$和$$V$$。其中矩阵$$U$$的大小是$$m \times m$$，矩阵$$S$$的大小为$$m \times n$$，矩阵$$V$$的大小为$$n \times n$$。矩阵$$M$$实际上表示了有$$n$$个特征数量为$$m$$的输入向量的样本数据集。矩阵$$S$$是一个对角矩阵，也称为矩阵$$M$$的**奇异值(singular value)**，而矩阵$$U$$和矩阵$$V$$分别为矩阵$$M$$的**左奇异值(left singular value)**和**右奇异值(right singular value)**。在主成分分析中，矩阵$$S$$也称为样本数据的**削减因子(reduction component)**，而矩阵$$U$$称为样本数据的**旋转因子(rotation component)**，其实可以看到假如每一个样本有$$N$$个特征，那么最终得到的协方差矩阵将会是$$N \times N$$阶的方阵。
+
+主成分分析算法将$$n$$个代表样本的输入向量的特征空间从$$m$$维减小到$$k$$维。这个降维的过程可以描述成一下的步骤：
+
+1. 利用输入矩阵$$X$$(上文中已经详细描述了这个矩阵的构造过程)，来计算得到协方差矩阵$$\sum$$。
+2. 利用奇异值分解将协方差矩阵$$\sum$$因式分解为三个矩阵$$U$$，$$S$$以及$$V$$。
+3. 从$$m \times m$$阶的矩阵$$U$$中选出前$$k$$列，选取的方法是画出奇异值矩阵$$S$$中对角线上的奇异值分布，然后取较大的前K个奇异值对应的奇异值向量，也就是$$U$$矩阵的前$$k$$列(这和利用特征值分解进行主成分分析很类似)，得到一个新的矩阵$$U_{reduced}$$，这个新的矩阵也称为协方差矩阵$$\sum$$的**左削减奇异值向量(reduced left singular vector)**或者**削减旋转矩阵(reduced rotation matrix)**。这个矩阵表示了样本数据中前$$k$$个主成分，所以这个矩阵的大小是$$m \times k$$阶。
+4. 计算原样本数据经过降维之后的输入矩阵，计算公式如下所示：
+
+$$Z = U_{reduced}^{T} \times X$$
+
+需要注意的是，最终出入给主成分分析算法进行降维的输入矩阵$$X$$需要经过均值归一化以及特征值缩放操作也就是上面公式中的$$X$$与我们构造协方差矩阵时的矩阵$$X$$一致，当然上面公式中的$$X$$矩阵也可以与上文中用来计算协方差矩阵时用到的矩阵$$X$$不同，这里所指的矩阵$$X$$仅仅是由所有输入样本向量组成的输入矩阵，而不需要进行均值归一化操作也不需要进行特征值缩放操作，如下所示：
+
+$$X = \begin{bmatrix}
+x_{1} & x_{2} & \cdots & x_{n}
+\end{bmatrix}$$
+
+因为$$U_{reduced}$$是一个$$m \times k$$阶的矩阵，$$X$$是一个$$m \times n$$阶的矩阵，其中的$$m$$代表每一个样本中特征的个数，$$n$$代表数据集中样本的个数，$$k$$代表降维后选取出的主成分的个数。所以最终得到的降维矩阵$$Z$$是一个$$k \times n$$阶的矩阵，表示了$$n$$个有$$k$$个特征的样本。需要注意到的是，将样本的特征维度从$$m$$降到$$k$$之后，可能会导致样本数据中产生更高的损耗方差，也就是数据分布会更加离散化，因此在实际使用中我们需要选择合适的$$k$$值，从而让降维带来的误差尽可能得低。
+
+原始输入矩阵$$X$$同样也可以使用降维矩阵$$Z$$和左削减奇异值向量$$U_{reduced}$$来重现，计算公式如下所示：
+
+$$X = (U_{reduced}^{T})^{-1} \times Z$$
+
+`Incanter`这个库同样提供了可以供使用者进行主成分分析操作的函数。在后面的例子中我们将会使用主成分分析来对`Iris`数据集中的样本进行降维，从而可以更好地对这些样本点的分布进行可视化。
+
+>在下面的例子中为了使用Incanter库中的名字空间以及各个名字空间下的函数，我们需要修改代码文件中的名字空间声明，如下所示：<br/>
+(ns my-namespace<br/>
+&nbsp;&nbsp;(:use [incanter core stats charts datasets]))
+
+我们首先使用`get-dataset`，`to-matrix`和`sel`函数来定义训练数据集，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def iris-matrix (to-matrix (get-dataset :iris)))
+(def iris-features (sel iris-matrix :cols (range 4)))
+(def iris-species (sel iris-matrix :cols 4))
+{% endcodeblock %}
+
+和之前的例子类似，我们取`Iris`数据集的前四列作为样本输入值，而这些样本也构成了我们训练主成分分析算法寻找$$U$$矩阵的训练数据集。
+
+我们可以使用`incanter.stats`名字空间下的`principal-components`函数来执行主成分分析操作。这个函数会返回一个map对象，这个map对象中存储了上文中提到的主成分分析算法生成的削减矩阵$$S$$与旋转矩阵$$U$$。我们可以在REPL中查看这个map对象中的内容：
+
+{% codeblock lang:clojure %}
+(def pca (principal-components iris-features))
+user> pca
+{:std-dev (1.7083611493276223 0.9560494084868574 0.383088600158391 0.1439264966176126),
+ :rotation  A 4x4 matrix
+  -------------
+ -5.21e-01 -3.77e-01  7.20e-01  2.61e-01 
+  2.69e-01 -9.23e-01 -2.44e-01 -1.24e-01 
+ -5.80e-01 -2.45e-02 -1.42e-01 -8.01e-01 
+ -5.65e-01 -6.69e-02 -6.34e-01  5.24e-01 
+}
+{% endcodeblock %}
+
+可以看到，`:rotation`键对应的值是旋转矩阵$$U$$，`:std-dev`键对应的值是削减矩阵$$S$$，只不过此时的$$S$$矩阵并不是以矩阵形式存储，而是以序列形式存储$$S$$矩阵中对角线上的非零值。
+
+现在我们可以使用`sel`函数从输入数据的旋转矩阵$$U$$中取前几列得到左削减奇异值向量$$U_{reduced}$$，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def U (:rotation pca))
+(def U-reduced (sel U :cols (range 2)))
+{% endcodeblock %}
+
+如上面代码所示，我们可以用`:rotation`关键字来从`principal-components`函数返回的map对象中获得用输入数据对主成分分析算法进行训练之后得到的旋转矩阵$$U$$。现在我们可以利用削减旋转矩阵以及用`iris-features`变量表示的原输入样本矩阵来计算降维特征矩阵$$Z$$，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(def reduced-features (mmult iris-features U-reduced))
+{% endcodeblock %}
+
+从上面计算降维特征矩阵的代码中可以看到，与我们之前定义的公式中的形式稍有不同，这是因为代码中得到的各个矩阵的阶次形状与上文理论部分讨论中定义的各个矩阵的阶次形状不同，其实两者是等价的，最终得到的计算结果也是一致的，读者可以自行体会。
+
+在经过降维之后得到的数据样本矩阵中每一个样本的特征数就从原来的4维降到了2维。然后我们就可以使用`scatter-plot`函数将`reduced-features`函数返回的降维特征矩阵中的每一个样本点画出来，从而可以有效地对原数据集中样本点的分布情况进行可视化，如下面代码所示：
+
+{% codeblock lang:clojure %}
+(defn plot-reduced-features []
+  (view (scatter-plot (sel reduced-features :cols 0)
+                      (sel reduced-features :cols 1)
+                      :group-by iris-species
+                      :x-label "PC1"
+                      :y-label "PC2")))
+{% endcodeblock %}
+
+调用上面代码定义的`plot-reduced-features`函数画出的样本分布情况如下图所示：
+
+<center>
+	<img src="/images/cljml/chap7/image5.png">
+</center>
+
+如上面所示的散点图很好地为我们可视化了原数据集中样本点的分布情况。和之前用折线图画出的聚类簇均值图类似，从上图中可以看到有两类数据样本在给定的特征空间中比较相似，样本点靠得很近，而另一类样本点则可以很好地与其他两类样本进行区分，因为在给定的特征空间中，这一类样本点分布的位置较为孤立。综上所示，`Incanter`库可以很好地支持主成分分析操作，从而可以有效的让我们降低高维数据样本的特征维度从而可以比较直观和容易地可视化样本点的分布情况。
+
 ## 本章概要
+
+在这一章中，我们探索了几个可以对非标记数据集进行建模的聚类算法。本章的要点可以概括如下：
+
+* 使用纯Clojure实现了K-means聚类算法以及层级聚类算法，并且分别用训练数据训练了这两个实现的聚类模型，较为深入的理解了两种聚类算法。此外还介绍了如何使用`clj-ml`库来更为简单地使用这两种聚类算法。
+* 讨论了期望极大(EM)算法，这种算法是一种基于概率统计理论的聚类算法。在讨论完EM算法的理论之后，使用`clj-ml`库创建并训练了一个EM聚类器。
+* 此外还探索了使用自组织神经网络(SOM)来拟合在高维特征空间中的聚类问题。介绍了使用`Incanter`库来创建并训练一个自组织神经网络并用这个训练好的实例来进行聚类操作。
+* 最后，学习了降维技术的概念与主成分分析算法，以及如何使用主成分分析技术来对`Incanter`库中的`Iris`数据集中的样本数据进行特征降维，从而可以更好地可视化这个数据集中样本点的分布情况。
+
+在下一章中，我们将会探索异常检测的概念以及利用机器学习的技术来构建推荐系统。
