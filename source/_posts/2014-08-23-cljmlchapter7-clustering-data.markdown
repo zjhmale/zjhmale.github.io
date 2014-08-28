@@ -3,7 +3,7 @@ layout: post
 title: "cljmlchapter7-clustering data"
 date: 2014-08-23 09:44:20 +0800
 comments: true
-categories: clojure fp
+categories: clojure ml
 ---
 
 在这一章中我们将把我们的注意力集中在**非监督学习(unsupervised learning)**问题上。我们会学习几个**聚类(clustering)**算法，或者说是**聚类器(clusterers)**的原理，并使用Clojure实现它们。此外还会展示几个已经完整实现了聚类算法的Clojure库。直到本章的最后，我们将会探究**降维(dimensionality reduction)**技术，以及如何使用这种技术来对给定的高维样本数据提供一个易于理解的可视化效果。
